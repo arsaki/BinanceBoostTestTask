@@ -91,8 +91,13 @@ int main()
 
            std::cout << beast::make_printable(buffer.data()) << std::endl;
            cout<<"ws.close"<< endl;
-           ws.close(websocket::close_code::normal);
-
+//           ws.close(websocket::close_code::normal);
+           beast::error_code ec;
+           ws.close(boost::beast::websocket::close_code::service_restart, ec);
+                       //error code = 1, fail = true, but, ws_.is_open() return false which means ws have closed successfully
+                       if (ec)
+                           if ( !ws.is_open() )
+                                std::cerr << ": " << ec.message() << endl;
            // If we get here then the connection is closed gracefully
 
            // The make_printable() function helps print a ConstBufferSequence
