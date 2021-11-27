@@ -7,6 +7,7 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/stream.hpp>
+#include <boost/thread.hpp>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -20,86 +21,100 @@ namespace ssl = boost::asio::ssl;                   // from <boost/asio/ssl.hpp>
 using tcp = boost::asio::ip::tcp;                       // from <boost/asio/ip/tcp.hpp>
 using namespace std;
 
-int main()
+
+double bid_offer_spot_average = 0;
+double bid_offer_perpetual_average = 0;
+double fund_rate = 0;
+beast::flat_buffer buffer;
+
+
+void websocket_message_handler( beast::error_code const & ec, std::size_t bytes_transferred)
+{
+    if (ec)
+            std::cout << "Error!!!!" + ec.message() << std::endl;
+    else
+            std::cout << beast::make_printable(buffer.data()) << std::endl;
+    buffer.clear();
+
+}
+
+
+void mk_websocket()
 {
            cout<<"Starting" << endl;
            //"wss://stream.binance.com:9443"
            std::string host = "stream.binance.com";
            auto const  port = "9443";
            auto const  text = "some text";
-
-           // The io_context is required for all I/O
            net::io_context ioc;
-
-           // The SSL context is required, and holds certificates
            ssl::context ctx{ssl::context::tlsv12_client};
-
-           // This holds the root certificate used for verification
            load_root_certificates(ctx);
-
-           // These objects perform our I/O
            tcp::resolver resolver{ioc};
            websocket::stream<beast::ssl_stream<tcp::socket>> ws{ioc, ctx};
-
-           // Look up the domain name
-          cout << "resolver.resolve"<< endl;
            auto const results = resolver.resolve(host, port);
-
-           // Make the connection on the IP address we get from a lookup
            auto ep = net::connect(get_lowest_layer(ws), results);
-
-           // Set SNI Hostname (many hosts need this to handshake successfully)
            if(! SSL_set_tlsext_host_name(ws.next_layer().native_handle(), host.c_str()))
                throw beast::system_error(
                    beast::error_code(
                        static_cast<int>(::ERR_get_error()),
                        net::error::get_ssl_category()),
                    "Failed to set SNI Hostname");
-
-           // Update the host_ string. This will provide the value of the
-           // Host HTTP header during the WebSocket handshake.
-           // See https://tools.ietf.org/html/rfc7230#section-5.4
            host += ':' + std::to_string(ep.port());
-
-           // Perform the SSL handshake
-           cout<<"SSL handshake"<< endl;
            ws.next_layer().handshake(ssl::stream_base::client);
-
-           // Set a decorator to change the User-Agent of the handshake
-           cout<<"ws.set_option"<< endl;
-           ws.set_option(websocket::stream_base::decorator(
-               [](websocket::request_type& req)
-               {
-                   req.set(http::field::user_agent,
-                       std::string(BOOST_BEAST_VERSION_STRING) +
-                           " websocket-client-coro");
-               }));
-
-           // Perform the websocket handshake
-           cout<<"ws.handshake"<< endl;
-           ws.handshake(host, "/ws/btcusdt@aggTrade");
-
-           // Send the message
+           ws.handshake(host, "/ws/btcusdt@bookTicker");
 //           ws.write(net::buffer(std::string(text)));
-
-           // This buffer will hold the incoming message
-           beast::flat_buffer buffer;
-
-           // Read a message into our buffer
-           cout<<"ws.read"<< endl;
-           ws.read(buffer);
-
-           std::cout << beast::make_printable(buffer.data()) << std::endl;
-           cout<<"ws.close"<< endl;
-//           ws.close(websocket::close_code::normal);
-           beast::error_code ec;
-           ws.close(boost::beast::websocket::close_code::service_restart, ec);
+//           beast::flat_buffer buffer;
+//           ws.read(buffer);
+//           std::cout << beast::make_printable(buffer.data()) << std::endl;
+//           beast::error_code ec;
+//           ws.close(boost::beast::websocket::close_code::service_restart, ec);
                        //error code = 1, fail = true, but, ws_.is_open() return false which means ws have closed successfully
-                       if (ec)
-                           if ( !ws.is_open() )
-                                std::cerr << ": " << ec.message() << endl;
-           // If we get here then the connection is closed gracefully
+//                       if (ec)
+//                           if ( !ws.is_open() )
+//                                std::cerr << ": " << ec.message() << endl;
+           while (1)
+           {
+               ws.async_read( buffer,  websocket_message_handler);
+               ioc.run();
+               std::cout<<"brbrbr" << std::endl;
+               ioc.restart();
 
-           // The make_printable() function helps print a ConstBufferSequence
-           return 0;
+           }
+           std::cout<<"ioc.run finished" << std::endl;
+           return;
+}
+
+void thread1job()
+{
+    while (1)
+    {
+        boost::this_thread::sleep(boost::posix_time::seconds(1));
+        std::cout<<bid_offer_spot_average<<std::endl;
+    }
+}
+
+void thread2job()
+{
+    mk_websocket();
+//    while (1)
+//    {
+////        bid_offer_spot_average = bid_offer_spot_average + 1;
+////        boost::this_thread::sleep(boost::posix_time::seconds(1));
+//    }
+}
+
+
+int main()
+{
+    boost::thread thread1(thread1job);
+    boost::thread thread2(thread2job);
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(2, &cpuset);
+    pthread_setaffinity_np(thread2.native_handle(), sizeof(cpu_set_t), &cpuset);
+    thread1.join();
+//    while(1)
+//    {
+
+//    }
 }
